@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findMediaSource } from '@/lib/mediaDB';
 import { extractArticleContent, extractMetadata } from '@/lib/jina';
+import { model } from '@/lib/ml/xgboost-model';
+import { matchClaimsWithFactChecks } from '@/lib/factcheck-database';
 
 interface LLMAnalysisResponse {
   score: number;
