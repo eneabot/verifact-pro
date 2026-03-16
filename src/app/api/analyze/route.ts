@@ -18,6 +18,7 @@ import { extractArticleContent } from '@/lib/jina';
 import { model } from '@/lib/ml/xgboost-model';
 import { checkArticleClaims, GoogleFactCheckClaim } from '@/lib/factcheck-api';
 import { analyzeSentiment } from '@/lib/sentiment';
+import { buildClaimsAnalysis } from './detailed';
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
 
@@ -46,17 +47,35 @@ export interface AnalysisResponse {
   mlJustifications: string[];
   source: { name: string; type: string; description: string; isExtremist?: boolean } | null;
   scoreBreakdown: { source: number; ml: number; sentiment: number; factCheck: number; final: number };
+  claimsAnalysis?: {
+    claims: Array<{
+      text: string;
+      confidence: number;
+      factCheckMatches: Array<{
+        claim: string;
+        rating: string;
+        source: string;
+        url: string;
+        publisherName: string;
+      }>;
+      status: 'verified_true' | 'verified_false' | 'unverified' | 'mixed';
+      explanation: string;
+    }>;
+    summary: string;
+  };
 }
 
 // ── MAIN HANDLER ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
-    const { url } = await req.json() as { url?: string };
+    const { url, detailed } = await req.json() as { url?: string; detailed?: boolean };
 
     if (!url) {
       return NextResponse.json({ error: 'URL is required' }, { status: 400 });
     }
+
+    const isDetailed = detailed === true;
 
     // ── 1. Media source lookup ───────────────────────────────────────────────
     const mediaSource = findMediaSource(url);
@@ -189,6 +208,16 @@ export async function POST(req: NextRequest) {
     // ── 8. Verdict ───────────────────────────────────────────────────────────
     const { label, verdict } = getVerdict(finalScore);
 
+    // ── 9. Optional: Claim-level analysis ────────────────────────────────────
+    let claimsAnalysis: AnalysisResponse['claimsAnalysis'] | undefined;
+    if (isDetailed && articleContent) {
+      try {
+        claimsAnalysis = await buildClaimsAnalysis(articleContent);
+      } catch (error) {
+        console.warn('Claims analysis failed — skipping:', error);
+      }
+    }
+
     const response: AnalysisResponse = {
       score: finalScore,
       label,
@@ -220,6 +249,7 @@ export async function POST(req: NextRequest) {
         factCheck: factCheckBonus,
         final: finalScore,
       },
+      ...(claimsAnalysis && { claimsAnalysis }),
     };
 
     return NextResponse.json(response);

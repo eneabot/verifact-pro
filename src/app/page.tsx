@@ -14,6 +14,20 @@ export interface FactCheckMatch {
   reviewUrl: string;
 }
 
+export interface ClaimItem {
+  text: string;
+  confidence: number;
+  factCheckMatches: Array<{
+    claim: string;
+    rating: string;
+    source: string;
+    url: string;
+    publisherName: string;
+  }>;
+  status: 'verified_true' | 'verified_false' | 'unverified' | 'mixed';
+  explanation: string;
+}
+
 export interface AnalysisResult {
   score: number;
   label: string;
@@ -43,6 +57,10 @@ export interface AnalysisResult {
     factCheck: number;
     final: number;
   };
+  claimsAnalysis?: {
+    claims: ClaimItem[];
+    summary: string;
+  };
 }
 
 export default function Home() {
@@ -60,7 +78,7 @@ export default function Home() {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: articleUrl })
+        body: JSON.stringify({ url: articleUrl, detailed: true })
       });
 
       if (!response.ok) {

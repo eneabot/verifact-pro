@@ -1,7 +1,7 @@
 'use client';
 
 import { getBiasIcon } from '@/lib/mediaDB';
-import type { AnalysisResult, FactCheckMatch } from '@/app/page';
+import type { AnalysisResult, FactCheckMatch, ClaimItem } from '@/app/page';
 
 interface ResultCardProps {
   result: AnalysisResult;
@@ -168,6 +168,55 @@ export default function ResultCard({ result, url }: ResultCardProps) {
           <span>Positif</span>
         </div>
       </div>
+
+      {/* ── Claims Analysis ── */}
+      {result.claimsAnalysis && result.claimsAnalysis.claims.length > 0 && (
+        <div className="mb-6 p-4 bg-white/70 rounded-lg border border-gray-200">
+          <p className="text-xs font-medium text-gray-600 mb-3">
+            ✅ ANALYSE DES AFFIRMATIONS ({result.claimsAnalysis.claims.length})
+          </p>
+          <p className="text-xs text-gray-500 mb-4">{result.claimsAnalysis.summary}</p>
+          <div className="space-y-3">
+            {result.claimsAnalysis.claims.map((claim: ClaimItem, idx: number) => (
+              <div key={idx} className="p-3 bg-white rounded border border-gray-100">
+                <div className="flex items-start gap-2 mb-2">
+                  <span className={`text-lg shrink-0 ${
+                    claim.status === 'verified_true' ? '✅' :
+                    claim.status === 'verified_false' ? '❌' :
+                    '⚠️'
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 break-words">
+                      "{claim.text.substring(0, 100)}{claim.text.length > 100 ? '…' : ''}"
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">{claim.explanation}</p>
+                  </div>
+                </div>
+                {claim.factCheckMatches.length > 0 && (
+                  <div className="ml-8 mt-2">
+                    <p className="text-xs text-gray-500 mb-1">Vérifications :</p>
+                    {claim.factCheckMatches.slice(0, 2).map((match, mIdx) => (
+                      <div key={mIdx} className="text-xs text-gray-600 mb-1">
+                        <span className="font-medium">{match.publisherName}:</span> {match.rating}
+                        {match.url && (
+                          <a
+                            href={match.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-1 text-blue-600 hover:underline"
+                          >
+                            →
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Fact-check matches ── */}
       {factCheckMatches && factCheckMatches.length > 0 && (

@@ -25,6 +25,18 @@ export interface FactCheckResult {
   summary: string;
 }
 
+export interface ClaimCheckResult {
+  status: 'verified_true' | 'verified_false' | 'unverified' | 'mixed';
+  matches: {
+    claim: string;
+    rating: string;
+    source: string;
+    url: string;
+    publisherName: string;
+  }[];
+  summary: string;
+}
+
 // ── CLAIM EXTRACTION ──────────────────────────────────────────────────────────
 
 /**
@@ -165,6 +177,104 @@ export async function checkArticleClaims(articleText: string): Promise<FactCheck
     credibilityBonus,
     summary,
   };
+}
+
+// ── CLAIM-LEVEL FACT CHECK ──────────────────────────────────────────────────────
+
+/**
+ * Check a single claim against Google Fact Check API
+ * Returns verified status and matching fact-checks
+ */
+export async function checkClaimAgainstFactChecks(claimText: string): Promise<ClaimCheckResult> {
+  if (!claimText || claimText.trim().length === 0) {
+    return {
+      status: 'unverified',
+      matches: [],
+      summary: 'Claim text is empty',
+    };
+  }
+
+  // Query Google Fact Check API for this specific claim
+  const results = await searchGoogleFactCheck(claimText);
+
+  if (results.length === 0) {
+    return {
+      status: 'unverified',
+      matches: [],
+      summary: 'Aucune vérification trouvée pour cette affirmation',
+    };
+  }
+
+  // Collect all ratings from all matches
+  const ratings: Array<{ rating: string; source: string; url: string; publisherName: string; claim: string }> = [];
+
+  for (const result of results) {
+    for (const review of result.claimReview) {
+      ratings.push({
+        rating: review.textualRating,
+        source: review.publisher.site,
+        url: review.url,
+        publisherName: review.publisher.name,
+        claim: result.text,
+      });
+    }
+  }
+
+  if (ratings.length === 0) {
+    return {
+      status: 'unverified',
+      matches: [],
+      summary: 'Aucun verdict trouvé dans les fact-checks',
+    };
+  }
+
+  // Determine overall status based on collected ratings
+  const status = determineClaimStatus(ratings);
+
+  // Return top 2-3 most relevant matches
+  const topMatches = ratings.slice(0, 3).map(r => ({
+    claim: r.claim,
+    rating: r.rating,
+    source: r.source,
+    url: r.url,
+    publisherName: r.publisherName,
+  }));
+
+  const summary = `${ratings.length} verdict(s) trouvé(s) - ${status === 'verified_true' ? 'VRAI' : status === 'verified_false' ? 'FAUX' : status === 'mixed' ? 'MITIGÉ' : 'NON VÉRIFIÉ'}`;
+
+  return {
+    status,
+    matches: topMatches,
+    summary,
+  };
+}
+
+/**
+ * Determine overall claim status from a list of ratings
+ */
+function determineClaimStatus(ratings: Array<{ rating: string }>): 'verified_true' | 'verified_false' | 'unverified' | 'mixed' {
+  if (ratings.length === 0) return 'unverified';
+
+  const trueRatings = ratings.filter(r => /true|vrai|correct|exact|confirmé/i.test(r.rating));
+  const falseRatings = ratings.filter(r => /false|faux|incorrect|inexact|infondé|erroné/i.test(r.rating));
+  const mixedRatings = ratings.filter(r => /misleading|trompeur|partiellement/i.test(r.rating));
+
+  // If all are true
+  if (trueRatings.length === ratings.length) {
+    return 'verified_true';
+  }
+
+  // If all are false
+  if (falseRatings.length === ratings.length) {
+    return 'verified_false';
+  }
+
+  // If mixed true/false or there are misleading ratings
+  if ((trueRatings.length > 0 && falseRatings.length > 0) || mixedRatings.length > 0) {
+    return 'mixed';
+  }
+
+  return 'unverified';
 }
 
 // ── HELPERS ────────────────────────────────────────────────────────────────────
