@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { ThemeProvider } from 'next-themes';
 import './globals.css';
+import '@/styles/highlights.css';
 
 export const viewport: Viewport = {
   width: 'device-width',

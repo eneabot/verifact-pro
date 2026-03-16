@@ -5,6 +5,7 @@ import { getBiasIcon } from '@/lib/mediaDB';
 import SentimentBar from './SentimentBar';
 import BiasIndicator from './BiasIndicator';
 import ClaimCard from './ClaimCard';
+import ArticleViewer from './ArticleViewer';
 import type { AnalysisResult, FactCheckMatch, ClaimItem } from '@/app/page';
 
 interface ResultCardProps {
@@ -14,10 +15,12 @@ interface ResultCardProps {
 
 export default function ResultCard({ result, url }: ResultCardProps) {
   const [copied, setCopied] = useState(false);
+  const [showArticleViewer, setShowArticleViewer] = useState(false);
   const {
     score, label, verdict, bias, recommendations, source,
     mlJustifications, scoreBreakdown, factCheckMatches,
     sentimentScore, mlScore, sourceScore,
+    highlightedHtml, highlights, highlightStatistics,
   } = result;
 
   const getScoreColor = (s: number) => {
@@ -153,6 +156,41 @@ export default function ResultCard({ result, url }: ResultCardProps) {
         <SentimentBar score={sentimentScore} />
         <BiasIndicator bias={bias} />
       </div>
+
+      {/* Article Viewer Toggle */}
+      {highlightedHtml && highlights && highlightStatistics && (
+        <div className="glass rounded-xl overflow-hidden">
+          <button
+            onClick={() => setShowArticleViewer(!showArticleViewer)}
+            className="w-full px-6 py-4 flex items-center justify-between hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors border-b border-gray-200 dark:border-gray-700"
+          >
+            <div className="flex items-center gap-3 text-left">
+              <span className="text-2xl">📄</span>
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white">
+                  Voir l'article analysé avec highlighting
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {highlightStatistics.total} affirmation(s) surlignée(s)
+                </p>
+              </div>
+            </div>
+            <span className={`text-2xl transform transition-transform ${showArticleViewer ? 'rotate-180' : ''}`}>
+              ▼
+            </span>
+          </button>
+
+          {showArticleViewer && (
+            <div className="p-6 border-t border-gray-200 dark:border-gray-700">
+              <ArticleViewer
+                highlightedHtml={highlightedHtml}
+                highlights={highlights}
+                statistics={highlightStatistics}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Claims Analysis */}
       {result.claimsAnalysis && result.claimsAnalysis.claims.length > 0 && (

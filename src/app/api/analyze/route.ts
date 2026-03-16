@@ -19,6 +19,7 @@ import { model } from '@/lib/ml/xgboost-model';
 import { checkArticleClaims, GoogleFactCheckClaim } from '@/lib/factcheck-api';
 import { analyzeSentiment } from '@/lib/sentiment';
 import { buildClaimsAnalysis } from './detailed';
+import { highlightArticleText } from '@/lib/article-highlighter';
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
 
@@ -63,19 +64,37 @@ export interface AnalysisResponse {
     }>;
     summary: string;
   };
+  highlightedHtml?: string;
+  highlights?: Array<{
+    claimId: string;
+    originalText: string;
+    startChar: number;
+    endChar: number;
+    status: 'verified_true' | 'verified_false' | 'unverified' | 'mixed';
+    color: string;
+    explanation: string;
+  }>;
+  highlightStatistics?: {
+    verified_true: number;
+    verified_false: number;
+    unverified: number;
+    mixed: number;
+    total: number;
+  };
 }
 
 // ── MAIN HANDLER ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
-    const { url, detailed } = await req.json() as { url?: string; detailed?: boolean };
+    const { url, detailed, highlight } = await req.json() as { url?: string; detailed?: boolean; highlight?: boolean };
 
     if (!url) {
       return NextResponse.json({ error: 'URL is required' }, { status: 400 });
     }
 
     const isDetailed = detailed === true;
+    const shouldHighlight = highlight === true;
 
     // ── 1. Media source lookup ───────────────────────────────────────────────
     const mediaSource = findMediaSource(url);
@@ -210,11 +229,45 @@ export async function POST(req: NextRequest) {
 
     // ── 9. Optional: Claim-level analysis ────────────────────────────────────
     let claimsAnalysis: AnalysisResponse['claimsAnalysis'] | undefined;
-    if (isDetailed && articleContent) {
+    if ((isDetailed || shouldHighlight) && articleContent) {
       try {
         claimsAnalysis = await buildClaimsAnalysis(articleContent);
       } catch (error) {
         console.warn('Claims analysis failed — skipping:', error);
+      }
+    }
+
+    // ── 10. Optional: Inline highlighting ───────────────────────────────────
+    let highlightedHtml: string | undefined;
+    let highlights: AnalysisResponse['highlights'] | undefined;
+    let highlightStatistics: AnalysisResponse['highlightStatistics'] | undefined;
+
+    if (shouldHighlight && claimsAnalysis && claimsAnalysis.claims.length > 0 && articleContent) {
+      try {
+        const highlightResult = highlightArticleText(
+          articleContent,
+          claimsAnalysis.claims.map(c => ({
+            text: c.text,
+            status: c.status,
+            explanation: c.explanation,
+            confidence: c.confidence,
+          }))
+        );
+
+        highlightedHtml = highlightResult.highlightedHtml;
+        highlights = highlightResult.highlights.map(h => ({
+          claimId: h.claimId,
+          originalText: h.text,
+          startChar: h.startChar,
+          endChar: h.endChar,
+          status: h.status,
+          color: h.status === 'verified_true' ? 'green' :
+                 h.status === 'verified_false' ? 'red' : 'yellow',
+          explanation: h.explanation,
+        }));
+        highlightStatistics = highlightResult.statistics;
+      } catch (error) {
+        console.warn('Highlighting failed — skipping:', error);
       }
     }
 
@@ -250,6 +303,9 @@ export async function POST(req: NextRequest) {
         final: finalScore,
       },
       ...(claimsAnalysis && { claimsAnalysis }),
+      ...(highlightedHtml && { highlightedHtml }),
+      ...(highlights && { highlights }),
+      ...(highlightStatistics && { highlightStatistics }),
     };
 
     return NextResponse.json(response);

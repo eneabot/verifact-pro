@@ -63,6 +63,23 @@ export interface AnalysisResult {
     claims: ClaimItem[];
     summary: string;
   };
+  highlightedHtml?: string;
+  highlights?: Array<{
+    claimId: string;
+    originalText: string;
+    startChar: number;
+    endChar: number;
+    status: 'verified_true' | 'verified_false' | 'unverified' | 'mixed';
+    color: string;
+    explanation: string;
+  }>;
+  highlightStatistics?: {
+    verified_true: number;
+    verified_false: number;
+    unverified: number;
+    mixed: number;
+    total: number;
+  };
 }
 
 export default function Home() {
@@ -80,7 +97,7 @@ export default function Home() {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: articleUrl, detailed: true })
+        body: JSON.stringify({ url: articleUrl, detailed: true, highlight: true })
       });
 
       if (!response.ok) {
