@@ -1,6 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { getBiasIcon } from '@/lib/mediaDB';
+import SentimentBar from './SentimentBar';
+import BiasIndicator from './BiasIndicator';
+import ClaimCard from './ClaimCard';
 import type { AnalysisResult, FactCheckMatch, ClaimItem } from '@/app/page';
 
 interface ResultCardProps {
@@ -9,13 +13,13 @@ interface ResultCardProps {
 }
 
 export default function ResultCard({ result, url }: ResultCardProps) {
+  const [copied, setCopied] = useState(false);
   const {
     score, label, verdict, bias, recommendations, source,
     mlJustifications, scoreBreakdown, factCheckMatches,
     sentimentScore, mlScore, sourceScore,
   } = result;
 
-  // ── Color helpers ──────────────────────────────────────────────────────────
   const getScoreColor = (s: number) => {
     if (s >= 75) return 'from-green-400 to-green-600';
     if (s >= 55) return 'from-yellow-400 to-yellow-600';
@@ -23,263 +27,253 @@ export default function ResultCard({ result, url }: ResultCardProps) {
     return 'from-red-400 to-red-600';
   };
 
-  const getBg = () => {
-    if (score >= 75) return 'bg-green-50';
-    if (score >= 55) return 'bg-yellow-50';
-    if (score >= 35) return 'bg-orange-50';
-    return 'bg-red-50';
-  };
-
-  const getBorder = () => {
-    if (score >= 75) return 'border-green-200';
-    if (score >= 55) return 'border-yellow-200';
-    if (score >= 35) return 'border-orange-200';
-    return 'border-red-200';
-  };
-
-  // ── Sentiment label + color ────────────────────────────────────────────────
-  const getSentimentLabel = (s: number) => {
-    if (s < 35) return { text: 'Alarmiste', color: 'text-red-600' };
-    if (s <= 65) return { text: 'Neutre', color: 'text-gray-600' };
-    return { text: 'Positif', color: 'text-green-600' };
-  };
-
-  const sentimentInfo = getSentimentLabel(sentimentScore);
-
-  // ── Sentiment bar color ────────────────────────────────────────────────────
-  const getSentimentBarColor = (s: number) => {
-    if (s < 35) return 'bg-red-400';
-    if (s <= 65) return 'bg-blue-400';
-    return 'bg-green-400';
-  };
-
-  // ── Rating badge color ─────────────────────────────────────────────────────
   const getRatingColor = (rating: string) => {
     const r = rating.toLowerCase();
-    if (/true|vrai|correct|exact|confirmé/.test(r)) return 'bg-green-100 text-green-700';
-    if (/false|faux|incorrect|inexact|infondé/.test(r)) return 'bg-red-100 text-red-700';
-    if (/misleading|trompeur|partiel/.test(r)) return 'bg-orange-100 text-orange-700';
-    return 'bg-gray-100 text-gray-700';
+    if (/true|vrai|correct|exact|confirmé/.test(r)) return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
+    if (/false|faux|incorrect|inexact|infondé/.test(r)) return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400';
+    if (/misleading|trompeur|partiel/.test(r)) return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400';
+    return 'bg-gray-100 dark:bg-gray-900/30 text-gray-700 dark:text-gray-400';
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   };
 
   return (
-    <div className={`mt-8 ${getBg()} border-2 ${getBorder()} rounded-2xl p-8 shadow-2xl`}>
-
-      {/* ── Score display ── */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">{label}</h2>
-          <p className="text-gray-600 font-medium">{verdict}</p>
-        </div>
-        <div className="flex flex-col items-center">
-          <div className="relative w-24 h-24">
-            <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 100 100">
-              <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" strokeWidth="4" className="text-gray-200" />
-              <circle
-                cx="50" cy="50" r="45"
-                fill="none" stroke="url(#scoreGrad)" strokeWidth="4"
-                strokeDasharray={`${(score / 100) * 282.6} 282.6`}
-                strokeLinecap="round"
-              />
-              <defs>
-                <linearGradient id="scoreGrad" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor={score >= 75 ? '#4ade80' : score >= 55 ? '#facc15' : score >= 35 ? '#fb923c' : '#f87171'} />
-                  <stop offset="100%" stopColor={score >= 75 ? '#16a34a' : score >= 55 ? '#ca8a04' : score >= 35 ? '#ea580c' : '#dc2626'} />
-                </linearGradient>
-              </defs>
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-3xl font-black text-gray-900">{score}</span>
-              <span className="text-xs text-gray-500">/100</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Source info ── */}
-      {source && (
-        <div className="mb-6 p-4 bg-white/70 rounded-lg border border-gray-200">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="font-semibold text-gray-900">{source.name}</p>
-              <p className="text-sm text-gray-600 mt-1">{source.description}</p>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-xs font-medium text-gray-600">Type:</span>
-                <span className="text-xs bg-gray-200 px-2 py-1 rounded">{source.type}</span>
-              </div>
-            </div>
-            {source.isExtremist && (
-              <div className="px-3 py-1 bg-red-200 text-red-700 rounded-full text-xs font-bold shrink-0 ml-2">
-                🚨 EXTRÉMISTE
-              </div>
+    <div className="mt-8 space-y-4 animate-fadeInUp">
+      {/* Main Score Card */}
+      <div className="glass rounded-2xl p-6 sm:p-8">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+          {/* Info section */}
+          <div className="flex-1">
+            <h2 className="text-3xl sm:text-4xl font-black bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent mb-2">
+              {label}
+            </h2>
+            <p className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">
+              {verdict}
+            </p>
+            {source && (
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Source : <span className="font-bold">{source.name}</span>
+              </p>
             )}
           </div>
-        </div>
-      )}
 
-      {/* ── Bias badge ── */}
-      <div className="mb-6 p-4 bg-white/70 rounded-lg border border-gray-200">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-gray-600">Biais politique identifié :</span>
-          <div className="text-2xl">{getBiasIcon(bias)}</div>
-          <span className="text-sm font-bold text-gray-900 capitalize">{bias}</span>
+          {/* Circular score */}
+          <div className="flex-shrink-0">
+            <div className="relative w-32 h-32">
+              <svg className="w-32 h-32 transform -rotate-90" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" strokeWidth="3" className="text-gray-200 dark:text-slate-700" />
+                <circle
+                  cx="50" cy="50" r="45"
+                  fill="none" stroke="url(#scoreGrad)" strokeWidth="3"
+                  strokeDasharray={`${(score / 100) * 282.6} 282.6`}
+                  strokeLinecap="round"
+                  className="transition-all duration-1000"
+                />
+                <defs>
+                  <linearGradient id="scoreGrad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor={score >= 75 ? '#4ade80' : score >= 55 ? '#facc15' : score >= 35 ? '#fb923c' : '#f87171'} />
+                    <stop offset="100%" stopColor={score >= 75 ? '#16a34a' : score >= 55 ? '#ca8a04' : score >= 35 ? '#ea580c' : '#dc2626'} />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-4xl font-black text-gray-900 dark:text-white">{score}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">/100</span>
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Source info */}
+        {source && (
+          <div className="mt-6 p-4 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="font-semibold text-gray-900 dark:text-white">{source.name}</p>
+                <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{source.description}</p>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Type :</span>
+                  <span className="text-xs bg-white dark:bg-slate-800 px-2 py-1 rounded font-medium text-gray-700 dark:text-gray-300">
+                    {source.type}
+                  </span>
+                </div>
+              </div>
+              {source.isExtremist && (
+                <div className="flex-shrink-0 px-3 py-2 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg text-xs font-bold">
+                  🚨 EXTRÉMISTE
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* ── Score breakdown (4 items) ── */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="p-3 bg-white/70 rounded-lg border border-gray-200">
-          <p className="text-xs font-medium text-gray-500 mb-1">Source</p>
-          <p className="text-2xl font-black text-gray-900">{scoreBreakdown.source}</p>
-          <p className="text-xs text-gray-400">35%</p>
-        </div>
-        <div className="p-3 bg-white/70 rounded-lg border border-gray-200">
-          <p className="text-xs font-medium text-gray-500 mb-1">ML Analyse</p>
-          <p className="text-2xl font-black text-gray-900">{scoreBreakdown.ml}</p>
-          <p className="text-xs text-gray-400">40%</p>
-        </div>
-        <div className="p-3 bg-white/70 rounded-lg border border-gray-200">
-          <p className="text-xs font-medium text-gray-500 mb-1">Sentiment</p>
-          <p className={`text-2xl font-black ${sentimentInfo.color}`}>{scoreBreakdown.sentiment}</p>
-          <p className="text-xs text-gray-400">10%</p>
-        </div>
-        <div className="p-3 bg-white/70 rounded-lg border border-gray-200">
-          <p className="text-xs font-medium text-gray-500 mb-1">Fact-checks</p>
-          <p className="text-2xl font-black text-blue-700">+{scoreBreakdown.factCheck}</p>
-          <p className="text-xs text-gray-400">15%</p>
-        </div>
-      </div>
-
-      {/* ── Sentiment indicator ── */}
-      <div className="mb-6 p-4 bg-white/70 rounded-lg border border-gray-200">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-medium text-gray-600">TONALITÉ DE L&apos;ARTICLE</p>
-          <span className={`text-xs font-bold ${sentimentInfo.color}`}>{sentimentInfo.text} ({sentimentScore}/100)</span>
-        </div>
-        <div className="relative h-3 bg-gray-200 rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-500 ${getSentimentBarColor(sentimentScore)}`}
-            style={{ width: `${sentimentScore}%` }}
-          />
-        </div>
-        <div className="flex justify-between text-xs text-gray-400 mt-1">
-          <span>Alarmiste</span>
-          <span>Neutre</span>
-          <span>Positif</span>
-        </div>
-      </div>
-
-      {/* ── Claims Analysis ── */}
-      {result.claimsAnalysis && result.claimsAnalysis.claims.length > 0 && (
-        <div className="mb-6 p-4 bg-white/70 rounded-lg border border-gray-200">
-          <p className="text-xs font-medium text-gray-600 mb-3">
-            ✅ ANALYSE DES AFFIRMATIONS ({result.claimsAnalysis.claims.length})
+      {/* Score Breakdown Grid */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="glass rounded-lg p-4 text-center animate-slideInUp" style={{ animationDelay: '0s' }}>
+          <p className="text-xs font-bold text-gray-600 dark:text-gray-400 mb-1">SOURCE</p>
+          <p className="text-3xl font-black bg-gradient-to-r from-blue-500 to-blue-600 bg-clip-text text-transparent">
+            {scoreBreakdown.source}
           </p>
-          <p className="text-xs text-gray-500 mb-4">{result.claimsAnalysis.summary}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">35%</p>
+        </div>
+
+        <div className="glass rounded-lg p-4 text-center animate-slideInUp" style={{ animationDelay: '0.1s' }}>
+          <p className="text-xs font-bold text-gray-600 dark:text-gray-400 mb-1">ML</p>
+          <p className="text-3xl font-black bg-gradient-to-r from-purple-500 to-purple-600 bg-clip-text text-transparent">
+            {scoreBreakdown.ml}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">40%</p>
+        </div>
+
+        <div className="glass rounded-lg p-4 text-center animate-slideInUp" style={{ animationDelay: '0.2s' }}>
+          <p className="text-xs font-bold text-gray-600 dark:text-gray-400 mb-1">SENTIMENT</p>
+          <p className="text-3xl font-black bg-gradient-to-r from-amber-500 to-amber-600 bg-clip-text text-transparent">
+            {scoreBreakdown.sentiment}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">10%</p>
+        </div>
+
+        <div className="glass rounded-lg p-4 text-center animate-slideInUp" style={{ animationDelay: '0.3s' }}>
+          <p className="text-xs font-bold text-gray-600 dark:text-gray-400 mb-1">FACT-CHECKS</p>
+          <p className="text-3xl font-black bg-gradient-to-r from-green-500 to-green-600 bg-clip-text text-transparent">
+            +{scoreBreakdown.factCheck}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">15%</p>
+        </div>
+      </div>
+
+      {/* Sentiment & Bias */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <SentimentBar score={sentimentScore} />
+        <BiasIndicator bias={bias} />
+      </div>
+
+      {/* Claims Analysis */}
+      {result.claimsAnalysis && result.claimsAnalysis.claims.length > 0 && (
+        <div className="glass rounded-xl p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-2xl">✅</span>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                Analyse des affirmations
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {result.claimsAnalysis.claims.length} affirmations analysées
+              </p>
+            </div>
+          </div>
+
+          <p className="text-sm text-gray-700 dark:text-gray-300 mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            {result.claimsAnalysis.summary}
+          </p>
+
           <div className="space-y-3">
             {result.claimsAnalysis.claims.map((claim: ClaimItem, idx: number) => (
-              <div key={idx} className="p-3 bg-white rounded border border-gray-100">
-                <div className="flex items-start gap-2 mb-2">
-                  <span className={`text-lg shrink-0 ${
-                    claim.status === 'verified_true' ? '✅' :
-                    claim.status === 'verified_false' ? '❌' :
-                    '⚠️'
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 break-words">
-                      "{claim.text.substring(0, 100)}{claim.text.length > 100 ? '…' : ''}"
-                    </p>
-                    <p className="text-xs text-gray-600 mt-1">{claim.explanation}</p>
-                  </div>
-                </div>
-                {claim.factCheckMatches.length > 0 && (
-                  <div className="ml-8 mt-2">
-                    <p className="text-xs text-gray-500 mb-1">Vérifications :</p>
-                    {claim.factCheckMatches.slice(0, 2).map((match, mIdx) => (
-                      <div key={mIdx} className="text-xs text-gray-600 mb-1">
-                        <span className="font-medium">{match.publisherName}:</span> {match.rating}
-                        {match.url && (
-                          <a
-                            href={match.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="ml-1 text-blue-600 hover:underline"
-                          >
-                            →
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <ClaimCard key={idx} claim={claim} index={idx} />
             ))}
           </div>
         </div>
       )}
 
-      {/* ── Fact-check matches ── */}
+      {/* Fact-check matches */}
       {factCheckMatches && factCheckMatches.length > 0 && (
-        <div className="mb-6 p-4 bg-white/70 rounded-lg border border-gray-200">
-          <p className="text-xs font-medium text-gray-600 mb-3">
-            🔍 FACT-CHECKS CORRESPONDANTS ({factCheckMatches.length})
-          </p>
-          <ul className="space-y-3">
+        <div className="glass rounded-xl p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-2xl">🔍</span>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+              Fact-checks correspondants ({factCheckMatches.length})
+            </h3>
+          </div>
+
+          <div className="space-y-3">
             {factCheckMatches.map((match: FactCheckMatch, i: number) => (
-              <li key={i} className="text-sm">
-                <div className="flex items-start gap-2">
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold shrink-0 ${getRatingColor(match.textualRating)}`}>
+              <div key={i} className="p-4 bg-white/50 dark:bg-slate-800/50 rounded-lg border border-gray-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors hover:shadow-md hover:shadow-blue-200 dark:hover:shadow-blue-900/30">
+                <div className="flex items-start gap-3 mb-2">
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold flex-shrink-0 ${getRatingColor(match.textualRating)}`}>
                     {match.textualRating}
                   </span>
-                  <span className="text-gray-700 line-clamp-2">
-                    {match.text.length > 120 ? match.text.substring(0, 120) + '…' : match.text}
-                  </span>
+                  <p className="text-sm text-gray-900 dark:text-white font-medium flex-1">
+                    {match.text.length > 150 ? match.text.substring(0, 150) + '…' : match.text}
+                  </p>
                 </div>
-                <div className="flex items-center gap-2 mt-1 ml-0">
-                  <span className="text-xs text-gray-500">par {match.publisherName}</span>
+                <div className="flex items-center justify-between mt-2">
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                    par <span className="font-bold">{match.publisherName}</span>
+                  </p>
                   {match.reviewUrl && (
                     <a
                       href={match.reviewUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-blue-600 hover:underline"
+                      className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
                     >
-                      Voir la vérification →
+                      Voir →
                     </a>
                   )}
                 </div>
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
-      {/* ── Recommendations ── */}
-      <div className="mb-6 p-4 bg-white/70 rounded-lg border border-gray-200">
-        <p className="text-xs font-medium text-gray-600 mb-2">RECOMMANDATION</p>
-        <p className="text-sm font-bold text-gray-900">{recommendations.action}</p>
-        <p className="text-sm text-gray-600 mt-2">{recommendations.explanation}</p>
+      {/* Recommendations */}
+      <div className="glass rounded-xl p-6 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800">
+        <div className="flex items-start gap-3">
+          <span className="text-3xl flex-shrink-0">💡</span>
+          <div className="flex-1">
+            <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-1">
+              {recommendations.action}
+            </h4>
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              {recommendations.explanation}
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* ── ML Justifications ── */}
+      {/* ML Justifications */}
       {mlJustifications && mlJustifications.length > 0 && (
-        <div className="mb-6 p-4 bg-white/70 rounded-lg border border-gray-200">
-          <p className="text-xs font-medium text-gray-600 mb-3">ANALYSE ML</p>
-          <ul className="space-y-2">
+        <div className="glass rounded-xl p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-2xl">🤖</span>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+              Analyse ML détaillée
+            </h3>
+          </div>
+
+          <div className="space-y-3">
             {mlJustifications.map((j: string, i: number) => (
-              <li key={i} className="text-sm text-gray-700 flex items-start gap-2">
-                <span className="text-lg mt-0.5 shrink-0">→</span>
-                <span>{j}</span>
-              </li>
+              <div key={i} className="p-3 bg-white/50 dark:bg-slate-800/50 rounded-lg border border-gray-200 dark:border-slate-700 flex gap-3">
+                <span className="text-lg flex-shrink-0">→</span>
+                <p className="text-sm text-gray-700 dark:text-gray-300">{j}</p>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
-      {/* ── URL ── */}
-      <div className="p-3 bg-gray-100 rounded-lg border border-gray-300">
-        <p className="text-xs font-medium text-gray-600 mb-1">URL ANALYSÉE</p>
-        <p className="text-xs text-gray-700 break-all font-mono">{url}</p>
+      {/* URL Section */}
+      <div className="glass rounded-lg p-4 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900/50 dark:to-slate-800/50">
+        <p className="text-xs font-bold text-gray-600 dark:text-gray-400 mb-2">URL ANALYSÉE</p>
+        <div className="flex items-center gap-2">
+          <code className="text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-slate-900/50 px-3 py-2 rounded border border-gray-200 dark:border-slate-700 flex-1 overflow-hidden overflow-ellipsis">
+            {url}
+          </code>
+          <button
+            onClick={copyToClipboard}
+            className="flex-shrink-0 p-2 hover:bg-gray-200 dark:hover:bg-slate-700 rounded transition-colors"
+            title="Copier l'URL"
+          >
+            {copied ? '✅' : '📋'}
+          </button>
+        </div>
       </div>
     </div>
   );
