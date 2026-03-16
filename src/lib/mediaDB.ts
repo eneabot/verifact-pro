@@ -132,7 +132,7 @@ export const MEDIA_DATABASE: MediaSource[] = [
     domain: 'lepoint.fr',
     name: 'Le Point',
     type: 'hebdo',
-    baseScore: 76,
+    baseScore: 75,
     bias: 'centre-droit',
     description: 'Newsmagazine généraliste'
   },
@@ -151,6 +151,38 @@ export const MEDIA_DATABASE: MediaSource[] = [
     baseScore: 75,
     bias: 'centre-gauche',
     description: 'Newsmagazine généraliste'
+  },
+  {
+    domain: 'marianne.net',
+    name: 'Marianne',
+    type: 'hebdo',
+    baseScore: 62,
+    bias: 'indépendant',
+    description: 'Hebdomadaire républicain, tendance souverainiste'
+  },
+  {
+    domain: 'lopinion.fr',
+    name: 'L\'Opinion',
+    type: 'pure-player',
+    baseScore: 72,
+    bias: 'centre-droit',
+    description: 'Quotidien libéral économique'
+  },
+  {
+    domain: 'la-croix.com',
+    name: 'La Croix',
+    type: 'quotidien',
+    baseScore: 80,
+    bias: 'centre',
+    description: 'Quotidien catholique, rigueur éditoriale reconnue'
+  },
+  {
+    domain: 'humanite.fr',
+    name: 'L\'Humanité',
+    type: 'quotidien',
+    baseScore: 65,
+    bias: 'gauche',
+    description: 'Quotidien communiste, partisan mais sourcé'
   },
 
   // ────────── TV CONTINUE & RADIO PRIVÉE (BASE SCORE 65-75) ──────────────
@@ -193,6 +225,85 @@ export const MEDIA_DATABASE: MediaSource[] = [
     baseScore: 62,
     bias: 'droite',
     description: 'Radio, dérive éditoriale depuis rachat Bolloré'
+  },
+
+  // ────────── MÉDIAS INTERNATIONAUX ──────────────
+  {
+    domain: 'bbc.com',
+    name: 'BBC',
+    type: 'tv',
+    baseScore: 88,
+    bias: 'centre',
+    description: 'Service public britannique, référence mondiale'
+  },
+  {
+    domain: 'bbc.co.uk',
+    name: 'BBC',
+    type: 'tv',
+    baseScore: 88,
+    bias: 'centre',
+    description: 'Service public britannique, référence mondiale'
+  },
+  {
+    domain: 'theguardian.com',
+    name: 'The Guardian',
+    type: 'quotidien',
+    baseScore: 82,
+    bias: 'centre-gauche',
+    description: 'Quotidien britannique de référence, fort en investigatif'
+  },
+  {
+    domain: 'rt.com',
+    name: 'RT (Russia Today)',
+    type: 'tv',
+    baseScore: 15,
+    bias: 'extremiste',
+    description: '🚨 Média d\'état russe, propagande systématique, banni UE depuis 2022',
+    isExtremist: true
+  },
+  {
+    domain: 'sputniknews.com',
+    name: 'Sputnik',
+    type: 'pure-player',
+    baseScore: 10,
+    bias: 'extremiste',
+    description: '🚨 Agence de propagande d\'état russe, désinformation documentée',
+    isExtremist: true
+  },
+  {
+    domain: 'sputnikfrance.com',
+    name: 'Sputnik France',
+    type: 'pure-player',
+    baseScore: 10,
+    bias: 'extremiste',
+    description: '🚨 Agence de propagande d\'état russe (version française)',
+    isExtremist: true
+  },
+
+  // ────────── FACT-CHECKERS ──────────────
+  {
+    domain: 'checknews.fr',
+    name: 'CheckNews (Libération)',
+    type: 'pure-player',
+    baseScore: 92,
+    bias: 'centre',
+    description: 'Service de fact-checking de Libération'
+  },
+  {
+    domain: 'lesdecodeurs.fr',
+    name: 'Les Décodeurs (Le Monde)',
+    type: 'pure-player',
+    baseScore: 93,
+    bias: 'centre',
+    description: 'Cellule fact-checking du Monde'
+  },
+  {
+    domain: 'factuel.afp.com',
+    name: 'AFP Factuel',
+    type: 'agence',
+    baseScore: 96,
+    bias: 'centre',
+    description: 'Service de fact-checking de l\'AFP — référence nationale'
   },
 
   // ────────── MÉDIAS ALTERNATIFS (BASE SCORE 65-75) ──────────────
@@ -258,9 +369,10 @@ export const MEDIA_DATABASE: MediaSource[] = [
     domain: 'les-crises.fr',
     name: 'Les Crises',
     type: 'blog',
-    baseScore: 35,
-    bias: 'gauche',
-    description: '⚠️ Blog d\'analyse pro-russe en géopolitique'
+    baseScore: 20,
+    bias: 'extremiste',
+    description: '⚠️ Blog d\'analyse pro-russe en géopolitique, biais documenté',
+    isExtremist: true
   },
 
   // ────────── SOURCES EXTRÉMISTES & DÉSINFORMATION (BASE SCORE 0-20) ──────────────
@@ -289,6 +401,33 @@ export const MEDIA_DATABASE: MediaSource[] = [
     baseScore: 8,
     bias: 'extremiste',
     description: '🚨 Site islamophobe, condamnations',
+    isExtremist: true
+  },
+  {
+    domain: 'reseauinternational.net',
+    name: 'Réseau International',
+    type: 'extremiste',
+    baseScore: 8,
+    bias: 'extremiste',
+    description: '🚨 Site pro-russe et complotiste, désinformation documentée',
+    isExtremist: true
+  },
+  {
+    domain: 'wikistrike.com',
+    name: 'Wikistrike',
+    type: 'extremiste',
+    baseScore: 5,
+    bias: 'extremiste',
+    description: '🚨 Site complotiste notoire, multiples fake news documentées',
+    isExtremist: true
+  },
+  {
+    domain: 'medias-presse.info',
+    name: 'Médias-Presse.info',
+    type: 'extremiste',
+    baseScore: 12,
+    bias: 'extremiste',
+    description: '🚨 Site catholique intégriste, désinformation récurrente',
     isExtremist: true
   },
 

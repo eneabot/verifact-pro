@@ -4,28 +4,43 @@ import { useState } from 'react';
 import ResultCard from '@/components/ResultCard';
 import SearchBar from '@/components/SearchBar';
 
-interface AnalysisResult {
+export interface FactCheckMatch {
+  text: string;
+  claimant: string;
+  claimDate: string;
+  textualRating: string;
+  publisherName: string;
+  publisherSite: string;
+  reviewUrl: string;
+}
+
+export interface AnalysisResult {
   score: number;
   label: string;
   verdict: string;
   satire: boolean;
   bias: string;
   sourceScore: number;
-  contentScore: number | null;
+  mlScore: number;
+  mlConfidence: number;
+  sentimentScore: number;
+  factCheckMatches: FactCheckMatch[];
   recommendations: {
     action: string;
     explanation: string;
   };
+  mlJustifications: string[];
   source: {
     name: string;
     type: string;
     description: string;
     isExtremist?: boolean;
   } | null;
-  llmJustifications: string[];
   scoreBreakdown: {
     source: number;
-    content: number;
+    ml: number;
+    sentiment: number;
+    factCheck: number;
     final: number;
   };
 }
@@ -73,10 +88,10 @@ export default function Home() {
             </h1>
           </div>
           <p className="text-white/90 text-lg font-medium">
-            Fact-checker autonome d'actualité française
+            Fact-checker autonome d&apos;actualité française
           </p>
           <p className="text-white/70 text-sm mt-2">
-            Analyse en temps réel: source × contenu × biais
+            Analyse ML: source × contenu × sentiment × fact-checks
           </p>
         </div>
 
@@ -88,7 +103,7 @@ export default function Home() {
           <div className="mt-8 text-center">
             <div className="inline-flex items-center gap-3">
               <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
-              <span className="text-white font-medium">Analyse en cours...</span>
+              <span className="text-white font-medium">Analyse ML en cours…</span>
             </div>
           </div>
         )}
@@ -137,13 +152,19 @@ export default function Home() {
               >
                 FranceSoir 🚨
               </button>
+              <button
+                onClick={() => handleAnalyze('https://rt.com/article-test')}
+                className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg text-sm transition"
+              >
+                RT 🚨
+              </button>
             </div>
           </div>
         )}
 
         {/* Footer */}
         <div className="mt-12 text-center text-white/60 text-xs">
-          <p>Analyseur autonome basé sur: source fiabilité × contenu × LLM</p>
+          <p>ML-first: source × contenu ML × sentiment × Google Fact Check</p>
           <p className="mt-2">Sécurisé • Gratuit • Transparent</p>
         </div>
       </div>

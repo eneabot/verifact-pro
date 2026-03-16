@@ -1,261 +1,252 @@
+/**
+ * verifact PRO — Main Analysis Endpoint v3
+ * ML-first pipeline with optional LLM enhancement
+ *
+ * Pipeline:
+ *   1. Media source DB lookup      (35% weight)
+ *   2. Content extraction via Jina
+ *   3. ML credibility scoring      (40% weight)
+ *   4. Google Fact Check API       (15% weight)
+ *   5. Sentiment analysis          (10% weight)
+ *   6. LLM enhancement (optional)
+ *   7. Unified response
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { findMediaSource } from '@/lib/mediaDB';
-import { extractArticleContent, extractMetadata } from '@/lib/jina';
+import { extractArticleContent } from '@/lib/jina';
 import { model } from '@/lib/ml/xgboost-model';
-import { matchClaimsWithFactChecks } from '@/lib/factcheck-database';
+import { checkArticleClaims, GoogleFactCheckClaim } from '@/lib/factcheck-api';
+import { analyzeSentiment } from '@/lib/sentiment';
 
-interface LLMAnalysisResponse {
-  score: number;
-  label: string;
-  satire: boolean;
-  bias: string;
-  justifications: string[];
+// ── TYPES ─────────────────────────────────────────────────────────────────────
+
+export interface FactCheckMatch {
+  text: string;
+  claimant: string;
+  claimDate: string;
+  textualRating: string;
+  publisherName: string;
+  publisherSite: string;
+  reviewUrl: string;
 }
 
-/**
- * Main fact-checking endpoint
- */
+export interface AnalysisResponse {
+  score: number;
+  label: string;
+  verdict: string;
+  satire: boolean;
+  bias: string;
+  sourceScore: number;
+  mlScore: number;
+  mlConfidence: number;
+  sentimentScore: number;
+  factCheckMatches: FactCheckMatch[];
+  recommendations: { action: string; explanation: string };
+  mlJustifications: string[];
+  source: { name: string; type: string; description: string; isExtremist?: boolean } | null;
+  scoreBreakdown: { source: number; ml: number; sentiment: number; factCheck: number; final: number };
+}
+
+// ── MAIN HANDLER ──────────────────────────────────────────────────────────────
+
 export async function POST(req: NextRequest) {
   try {
-    const { url } = await req.json();
+    const { url } = await req.json() as { url?: string };
 
     if (!url) {
-      return NextResponse.json(
-        { error: 'URL is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'URL is required' }, { status: 400 });
     }
 
-    // 1. Check media source (40% weight)
+    // ── 1. Media source lookup ───────────────────────────────────────────────
     const mediaSource = findMediaSource(url);
-    
+
     if (mediaSource?.isParody) {
-      return NextResponse.json({
+      const parodyResponse: AnalysisResponse = {
         score: 0,
         label: '🤣 PARODIE / SATIRE',
         verdict: 'Ceci est un faux article (parodie)',
         satire: true,
         bias: mediaSource.bias,
         sourceScore: 0,
-        contentScore: null,
+        mlScore: 0,
+        mlConfidence: 1.0,
+        sentimentScore: 50,
+        factCheckMatches: [],
         recommendations: {
           action: 'Ne pas partager comme fait réel',
-          explanation: `${mediaSource.name} est un site de satire/parodie. Les articles ne sont pas réels.`
+          explanation: `${mediaSource.name} est un site de satire/parodie. Les articles ne sont pas réels.`,
         },
-        source: {
-          name: mediaSource.name,
-          type: mediaSource.type,
-          description: mediaSource.description
-        }
-      });
+        mlJustifications: ['Source confirmée comme parodie/satire'],
+        source: { name: mediaSource.name, type: mediaSource.type, description: mediaSource.description },
+        scoreBreakdown: { source: 0, ml: 0, sentiment: 50, factCheck: 0, final: 0 },
+      };
+      return NextResponse.json(parodyResponse);
     }
 
-    let sourceScore = mediaSource?.baseScore ?? 50;
-    const sourceWeight = 0.4;
+    const sourceScore = mediaSource?.baseScore ?? 50;
 
-    // 2. Extract article content
-    let contentScore = 50; // default
-    let llmAnalysis: LLMAnalysisResponse | null = null;
+    // ── 2. Content extraction ────────────────────────────────────────────────
+    let articleContent = '';
+    try {
+      articleContent = await extractArticleContent(url);
+    } catch {
+      console.warn('Content extraction failed — using source-only scoring');
+    }
+
+    // ── 3. ML scoring ────────────────────────────────────────────────────────
+    const words = articleContent.split(/\s+/).filter(w => w.length > 0);
+    const sentences = articleContent.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    const capsWords = words.filter(w => w.length > 2 && w === w.toUpperCase() && /[A-ZÀÂÇÉÈÊËÎÏÔÛÙÜŸÆŒ]/.test(w));
+
+    const mlFeatures = {
+      sourceBaseScore: sourceScore,
+      sentenceCount: Math.max(sentences.length, 1),
+      hasExternalLinks: /https?:\/\//.test(articleContent) ? 1 : 0,
+      hasQuotes: /["«»""]/.test(articleContent) ? 1 : 0,
+      hasNumbers: /\d+/.test(articleContent) ? 1 : 0,
+      hasNamedEntities: countCapitalWords(words) / Math.max(words.length, 1),
+      sentimentPolarity: 0.5, // will be updated from sentiment analysis
+      wordCount: words.length,
+      avgWordLength: words.length > 0
+        ? words.reduce((sum, w) => sum + w.length, 0) / words.length
+        : 5,
+      readingDifficulty: 0.5,
+    };
+
+    const mlPrediction = model.predict(mlFeatures);
+    const contentDelta = model.scoreContent(articleContent);
+
+    const rawMlScore = mlPrediction.score + contentDelta.delta;
+    const mlScore = Math.max(0, Math.min(100, rawMlScore));
+    const mlJustifications = [...mlPrediction.explanation, ...contentDelta.explanation];
+
+    // ── 4. Google Fact Check ─────────────────────────────────────────────────
+    let factCheckBonus = 0;
+    let factCheckMatches: FactCheckMatch[] = [];
 
     try {
-      const articleContent = await extractArticleContent(url);
-      
-      // 3. Analyze with LLM (60% weight)
-      if (articleContent) {
-        llmAnalysis = await analyzeLLM(articleContent, mediaSource?.name || 'Unknown');
-        contentScore = llmAnalysis.score;
+      const fcResult = await checkArticleClaims(articleContent);
+      factCheckBonus = fcResult.credibilityBonus;
+      factCheckMatches = normalizeFactCheckMatches(fcResult.matches);
+      if (fcResult.summary && fcResult.summary !== 'Aucun résultat dans les bases de fact-checking') {
+        mlJustifications.push(`🔍 Fact-checks: ${fcResult.summary}`);
       }
-    } catch (extractError) {
-      console.error('Extraction error:', extractError);
-      // If extraction fails, rely on source score only
-      contentScore = sourceScore;
+    } catch {
+      console.warn('Fact-check API failed — skipping');
     }
 
-    // 4. Calculate weighted score
-    const contentWeight = 0.6;
-    const finalScore = Math.round(sourceScore * sourceWeight + contentScore * contentWeight);
+    // ── 5. Sentiment analysis ────────────────────────────────────────────────
+    const sentiment = analyzeSentiment(articleContent);
+    const sentimentScore = sentiment.score;
 
-    // 5. Determine verdict
-    let verdict: string;
-    let label: string;
-    if (finalScore >= 75) {
-      label = '✅ SOURCE FIABLE';
-      verdict = 'Source de confiance — vérification rigoureuse recommandée';
-    } else if (finalScore >= 55) {
-      label = '⚠️ PRUDENCE';
-      verdict = 'À lire avec attention — fact-check recommandé';
-    } else if (finalScore >= 35) {
-      label = '⚠️ TRÈS DOUTEUSE';
-      verdict = 'Vérifier absolument — historique problématique';
-    } else {
-      label = '🚨 DÉSINFORMATION';
-      verdict = 'Probable désinformation — ne pas partager';
+    // Map sentiment score to credibility impact
+    // Neutral (45-55) → +5, very alarmist (<25) → -10, very positive (>80) → +3
+    let sentimentImpact = 0;
+    if (sentimentScore >= 45 && sentimentScore <= 65) {
+      sentimentImpact = 5;
+    } else if (sentimentScore < 25) {
+      sentimentImpact = -10;
+    } else if (sentimentScore < 35) {
+      sentimentImpact = -5;
+    } else if (sentimentScore > 75) {
+      sentimentImpact = 3;
     }
 
-    // 6. Compile response
-    const response = {
+    if (sentiment.signals.length > 0) {
+      mlJustifications.push(...sentiment.signals.slice(0, 2));
+    }
+
+    // ── 6. Optional LLM enhancement ─────────────────────────────────────────
+    let llmBoost = 0;
+    if (articleContent && (process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY)) {
+      try {
+        const llmResult = await callLLMAnalysis(articleContent, mediaSource?.name ?? 'inconnu');
+        if (llmResult) {
+          llmBoost = llmResult.scoreDelta;
+          mlJustifications.push(`🤖 IA: ${llmResult.summary}`);
+        }
+      } catch {
+        console.warn('LLM enhancement failed — skipping');
+      }
+    }
+
+    // ── 7. Weighted final score ──────────────────────────────────────────────
+    // Weights: source 35%, ML content 40%, fact-check 15%, sentiment 10%
+    const sentimentContrib = sentimentScore * 0.10;
+    const factCheckContrib = factCheckBonus;          // already 0-15
+
+    const finalScore = Math.round(
+      Math.max(0, Math.min(100,
+        sourceScore * 0.35 +
+        mlScore * 0.40 +
+        sentimentContrib +
+        factCheckContrib * (15 / 100) * 100 * 0.15 / 15 + // normalize to 0-15 range contribution
+        llmBoost
+      ))
+    );
+
+    // ── 8. Verdict ───────────────────────────────────────────────────────────
+    const { label, verdict } = getVerdict(finalScore);
+
+    const response: AnalysisResponse = {
       score: finalScore,
       label,
       verdict,
       satire: false,
-      bias: mediaSource?.bias || 'inconnu',
+      bias: mediaSource?.bias ?? 'inconnu',
       sourceScore,
-      contentScore,
+      mlScore,
+      mlConfidence: mlPrediction.confidence,
+      sentimentScore,
+      factCheckMatches,
       recommendations: {
         action: getActionByScore(finalScore),
-        explanation: getExplanationByScore(finalScore, mediaSource)
+        explanation: getExplanationByScore(finalScore, mediaSource),
       },
-      source: mediaSource ? {
-        name: mediaSource.name,
-        type: mediaSource.type,
-        description: mediaSource.description,
-        isExtremist: mediaSource.isExtremist || false
-      } : null,
-      llmJustifications: llmAnalysis?.justifications || [],
+      mlJustifications: dedupeJustifications(mlJustifications),
+      source: mediaSource
+        ? {
+            name: mediaSource.name,
+            type: mediaSource.type,
+            description: mediaSource.description,
+            isExtremist: mediaSource.isExtremist ?? false,
+          }
+        : null,
       scoreBreakdown: {
         source: sourceScore,
-        content: contentScore,
-        final: finalScore
-      }
+        ml: mlScore,
+        sentiment: sentimentScore,
+        factCheck: factCheckBonus,
+        final: finalScore,
+      },
     };
 
     return NextResponse.json(response);
+
   } catch (error) {
     console.error('Analysis error:', error);
     return NextResponse.json(
       {
         error: 'Analysis failed',
-        message: error instanceof Error ? error.message : 'Unknown error'
+        message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     );
   }
 }
 
-/**
- * LLM-based content analysis
- * Uses OpenAI or Anthropic API
- */
-async function analyzeLLM(
-  articleContent: string,
-  sourceNameFallback: string
-): Promise<LLMAnalysisResponse> {
-  const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
-  
-  if (!apiKey) {
-    console.warn('No LLM API key configured, using fallback analysis');
-    return getFallbackAnalysis(articleContent);
-  }
+// ── HELPERS ───────────────────────────────────────────────────────────────────
 
-  const systemPrompt = `Tu es un expert en fact-checking et analyse critique de contenu. Analyse l'article suivant pour déterminer :
-
-1. **Score de fiabilité (0-100)** : Évalue basé sur :
-   - Présence de preuves concrètes (citations, chiffres, sources)
-   - Ton (neutre vs. sensationnaliste/émotionnel)
-   - Logique (absence de sophismes, raccourcis complotistes)
-   - Cohérence générale
-
-2. **Satire** : Est-ce une parodie/satire d'article ?
-
-3. **Biais politique** : Détecte le biais (gauche, centre-gauche, centre, centre-droit, droite)
-
-4. **Justifications** : Liste 3-5 raisons concrètes pour le score
-
-Réponds UNIQUEMENT en JSON valide (sans backticks) avec la structure suivante :
-{
-  "score": <number 0-100>,
-  "label": "<string>",
-  "satire": <boolean>,
-  "bias": "<string>",
-  "justifications": ["<reason1>", "<reason2>", "<reason3>"]
-}`;
-
-  try {
-    // Try OpenAI first
-    if (process.env.OPENAI_API_KEY) {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: articleContent.substring(0, 3000) } // Limit to 3000 chars
-          ],
-          temperature: 0.3,
-          max_tokens: 500
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices[0].message.content;
-      
-      // Parse JSON response
-      const parsed = JSON.parse(content);
-      return parsed;
-    }
-  } catch (error) {
-    console.error('LLM analysis error:', error);
-  }
-
-  // Fallback if API fails
-  return getFallbackAnalysis(articleContent);
+function countCapitalWords(words: string[]): number {
+  return words.filter(w => w.length > 0 && /^[A-ZÀÂÇÉÈÊËÎÏÔÛÙÜŸÆŒ]/.test(w)).length;
 }
 
-/**
- * Heuristic-based fallback analysis (no API call)
- */
-function getFallbackAnalysis(articleContent: string): LLMAnalysisResponse {
-  const contentLower = articleContent.toLowerCase();
-  
-  // Score heuristics
-  let score = 50;
-
-  // Check for red flags
-  const sensationalismKeywords = ['incroyable', 'choquant', 'jamais', 'caché', 'ignorent', 'scandale', 'révélation exclusive'];
-  const sensationalismCount = sensationalismKeywords.filter(kw => contentLower.includes(kw)).length;
-  score -= sensationalismCount * 5;
-
-  // Check for positive signals
-  if (/https?:\/\//.test(articleContent)) score += 10; // Has links
-  if (/"[^"]{20,}"/.test(articleContent)) score += 8; // Has quotes
-  if (/\d{4}|\d{1,2}\/\d{1,2}\/\d{4}/.test(articleContent)) score += 5; // Has dates/numbers
-  if (/selon|d'après|cité|source|rapporte/.test(contentLower)) score += 10; // Has sources
-
-  // Detect bias
-  const biasKeywords = {
-    gauche: ['progressiste', 'social', 'égalité', 'justice', 'pauvreté'],
-    droite: ['tradition', 'sécurité', 'liberté', 'économie', 'entreprise'],
-  };
-
-  let bias = 'centre';
-  const leftCount = biasKeywords.gauche.filter(kw => contentLower.includes(kw)).length;
-  const rightCount = biasKeywords.droite.filter(kw => contentLower.includes(kw)).length;
-  
-  if (leftCount > rightCount + 3) bias = 'gauche';
-  else if (rightCount > leftCount + 3) bias = 'droite';
-
-  // Clamp score
-  score = Math.max(20, Math.min(90, score));
-
-  return {
-    score,
-    label: score >= 70 ? 'Fiable' : 'À vérifier',
-    satire: false,
-    bias,
-    justifications: [
-      sensationalismCount > 0 ? `⚠️ ${sensationalismCount} mots sensationnalistes détectés` : '✓ Langage neutre',
-      /https?:\/\//.test(articleContent) ? '✓ Présence de sources externes' : '⚠️ Pas de sources externes',
-      /selon|d'après|cité/.test(contentLower) ? '✓ Utilise des citations/sources' : '⚠️ Pas de citations directes'
-    ]
-  };
+function getVerdict(score: number): { label: string; verdict: string } {
+  if (score >= 75) return { label: '✅ SOURCE FIABLE', verdict: 'Source de confiance — vérification rigoureuse recommandée' };
+  if (score >= 55) return { label: '⚠️ PRUDENCE', verdict: 'À lire avec attention — fact-check recommandé' };
+  if (score >= 35) return { label: '⚠️ TRÈS DOUTEUSE', verdict: 'Vérifier absolument — historique problématique' };
+  return { label: '🚨 DÉSINFORMATION', verdict: 'Probable désinformation — ne pas partager' };
 }
 
 function getActionByScore(score: number): string {
@@ -265,20 +256,102 @@ function getActionByScore(score: number): string {
   return '🚫 Ne pas partager ou signaler comme faux';
 }
 
-function getExplanationByScore(score: number, source: any): string {
-  let base = '';
-  
-  if (source) {
-    base = `Source: ${source.name} (${source.type}). `;
+function getExplanationByScore(score: number, source: { name: string; type: string } | null): string {
+  const sourcePart = source ? `Source: ${source.name} (${source.type}). ` : '';
+  if (score >= 75) return `${sourcePart}Cette source a un historique de vérification rigoureuse.`;
+  if (score >= 55) return `${sourcePart}La source a des antécédents mitigés. Vérifiez via d'autres sources.`;
+  if (score >= 35) return `${sourcePart}La source présente des signaux d'alerte. Fact-check recommandé.`;
+  return `${sourcePart}Cette source a un historique de désinformation. Extrêmement douteuse.`;
+}
+
+function normalizeFactCheckMatches(claims: GoogleFactCheckClaim[]): FactCheckMatch[] {
+  const matches: FactCheckMatch[] = [];
+  for (const claim of claims) {
+    for (const review of claim.claimReview) {
+      matches.push({
+        text: claim.text,
+        claimant: claim.claimant,
+        claimDate: claim.claimDate,
+        textualRating: review.textualRating,
+        publisherName: review.publisher.name,
+        publisherSite: review.publisher.site,
+        reviewUrl: review.url,
+      });
+    }
+  }
+  return matches.slice(0, 5);
+}
+
+function dedupeJustifications(items: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of items) {
+    if (!seen.has(item)) {
+      seen.add(item);
+      result.push(item);
+    }
+  }
+  return result.slice(0, 8); // max 8 justifications
+}
+
+// ── OPTIONAL LLM ENHANCEMENT ──────────────────────────────────────────────────
+
+async function callLLMAnalysis(
+  content: string,
+  sourceName: string
+): Promise<{ scoreDelta: number; summary: string } | null> {
+  const prompt = `Analyse cet article de "${sourceName}" en 1-2 phrases courtes.
+Réponds en JSON: {"scoreDelta": <number -10 to +10>, "summary": "<string max 100 chars>"}
+Le scoreDelta doit refléter si le contenu est crédible (+) ou problématique (-).
+Article (extrait): ${content.substring(0, 1500)}`;
+
+  // Try Anthropic first (cheaper)
+  if (process.env.ANTHROPIC_API_KEY) {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-20240307',
+        max_tokens: 150,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (resp.ok) {
+      const data = await resp.json() as { content: { text: string }[] };
+      const text = data.content?.[0]?.text || '';
+      const match = text.match(/\{[^}]+\}/);
+      if (match) return JSON.parse(match[0]);
+    }
   }
 
-  if (score >= 75) {
-    return base + 'Cette source a un historique de vérification rigoureuse.';
-  } else if (score >= 55) {
-    return base + 'La source a des antécédents mitigés. Vérifiez via d\'autres sources.';
-  } else if (score >= 35) {
-    return base + 'La source ou l\'article présente des signaux d\'alerte. Fact-check recommandé.';
+  // Try OpenAI
+  if (process.env.OPENAI_API_KEY) {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 150,
+        temperature: 0.2,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (resp.ok) {
+      const data = await resp.json() as { choices: { message: { content: string } }[] };
+      const text = data.choices?.[0]?.message?.content || '';
+      const match = text.match(/\{[^}]+\}/);
+      if (match) return JSON.parse(match[0]);
+    }
   }
-  
-  return base + 'Cette source a un historique de désinformation. Extrêmement douteuse.';
+
+  return null;
 }
