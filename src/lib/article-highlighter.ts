@@ -141,9 +141,14 @@ function findClaimInArticle(
  * Escape HTML special characters
  */
 function escapeHtml(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+  const htmlEscapeMap: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#x27;',
+  };
+  return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
 }
 
 /**

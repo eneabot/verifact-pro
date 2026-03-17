@@ -87,17 +87,18 @@ export interface AnalysisResponse {
 
 export async function POST(req: NextRequest) {
   try {
-    const { url, detailed, highlight } = await req.json() as { url?: string; detailed?: boolean; highlight?: boolean };
+    const { url, text, detailed, highlight } = await req.json() as { url?: string; text?: string; detailed?: boolean; highlight?: boolean };
 
-    if (!url) {
-      return NextResponse.json({ error: 'URL is required' }, { status: 400 });
+    if (!url && !text) {
+      return NextResponse.json({ error: 'URL or text is required' }, { status: 400 });
     }
 
     const isDetailed = detailed === true;
     const shouldHighlight = highlight === true;
+    const isTextMode = !url && text;
 
     // ── 1. Media source lookup ───────────────────────────────────────────────
-    const mediaSource = findMediaSource(url);
+    const mediaSource = isTextMode ? null : findMediaSource(url || '');
 
     if (mediaSource?.isParody) {
       const parodyResponse: AnalysisResponse = {
@@ -126,10 +127,14 @@ export async function POST(req: NextRequest) {
 
     // ── 2. Content extraction ────────────────────────────────────────────────
     let articleContent = '';
-    try {
-      articleContent = await extractArticleContent(url);
-    } catch {
-      console.warn('Content extraction failed — using source-only scoring');
+    if (isTextMode) {
+      articleContent = text || '';
+    } else {
+      try {
+        articleContent = await extractArticleContent(url || '');
+      } catch {
+        console.warn('Content extraction failed — using source-only scoring');
+      }
     }
 
     // ── 3. ML scoring ────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import ResultCard from '@/components/ResultCard';
 import SearchBar from '@/components/SearchBar';
 import LoadingState from '@/components/LoadingState';
@@ -126,6 +127,16 @@ export default function Home() {
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-4 py-12">
         {/* Header Section */}
         <div className="w-full max-w-4xl mx-auto mb-8">
+          {/* Nav Links */}
+          <div className="flex justify-end mb-4 animate-slideInUp">
+            <Link
+              href="/detailed"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 text-blue-700 dark:text-blue-300 hover:from-blue-200 hover:to-purple-200 dark:hover:from-blue-800/50 dark:hover:to-purple-800/50 transition-all font-semibold"
+            >
+              🔍 Analyse Détaillée
+            </Link>
+          </div>
+
           {/* Logo & Title */}
           <div className="text-center mb-8 animate-fadeInUp">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 dark:from-blue-400 dark:to-purple-500 mb-6 shadow-lg">
