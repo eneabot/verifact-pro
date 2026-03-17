@@ -46,6 +46,13 @@ export default function ClaimCard({ claim, index }: ClaimCardProps) {
           <span className={`inline-block mt-2 px-2 py-1 text-xs font-bold rounded-full ${status.color}`}>
             {status.label}
           </span>
+
+          {/* AI Analysis badge */}
+          {claim.verifiedBy === 'ai' && (
+            <span className="inline-block ml-2 mt-2 px-2 py-1 text-xs font-bold rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+              🤖 AI Analysis
+            </span>
+          )}
         </div>
 
         {/* Confidence */}

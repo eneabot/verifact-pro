@@ -29,6 +29,8 @@ export interface ClaimItem {
   }>;
   status: 'verified_true' | 'verified_false' | 'unverified' | 'mixed';
   explanation: string;
+  verifiedBy?: 'factcheck' | 'ai' | 'none';
+  aiReasoning?: string;
 }
 
 export interface AnalysisResult {
@@ -144,11 +146,11 @@ export default function Home() {
             </div>
 
             <h1 className="text-5xl sm:text-6xl font-black text-gray-900 dark:text-white mb-3 animate-slideInUp">
-              verifact<span className="bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent"> PRO</span>
+              Veritas<span className="bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent">AI</span>
             </h1>
 
             <p className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2 animate-slideInUp" style={{ animationDelay: '0.1s' }}>
-              Analyseur autonome de fiabilité
+              Vérifiez la vérité, alimenté par l&apos;IA
             </p>
             <p className="text-gray-600 dark:text-gray-400 mb-4 animate-slideInUp" style={{ animationDelay: '0.2s' }}>
               pour actualité française

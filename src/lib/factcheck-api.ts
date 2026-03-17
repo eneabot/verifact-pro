@@ -179,18 +179,122 @@ export async function checkArticleClaims(articleText: string): Promise<FactCheck
   };
 }
 
+// ── GROQ AI FALLBACK ──────────────────────────────────────────────────────────
+
+export interface ClaimCheckResultWithSource extends ClaimCheckResult {
+  verifiedBy: 'factcheck' | 'ai' | 'none';
+  aiReasoning?: string;
+}
+
+/**
+ * Use Groq LLM to analyse a claim when Google FC has no results.
+ * Returns a ClaimCheckResultWithSource marked verifiedBy='ai'.
+ */
+export async function checkClaimWithGroq(
+  claimText: string,
+  articleContext: string
+): Promise<ClaimCheckResultWithSource> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    return { status: 'unverified', matches: [], summary: 'Groq API key not set', verifiedBy: 'none' };
+  }
+
+  const systemPrompt =
+    "You are an expert fact-checker. Analyse whether a claim from a news article is likely TRUE, FALSE, MIXED/MISLEADING, or UNVERIFIABLE based on general knowledge. Respond ONLY with valid JSON, no markdown.";
+
+  const userPrompt =
+    `Article context:\n"""${articleContext.substring(0, 800)}"""\n\nClaim to verify:\n"""${claimText.substring(0, 400)}"""\n\nRespond in JSON: {"status":"verified_true"|"verified_false"|"mixed"|"unverified","confidence":0.0-1.0,"reasoning":"brief explanation in French"}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 200,
+        response_format: { type: 'json_object' },
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      console.warn('Groq API error:', response.status);
+      return { status: 'unverified', matches: [], summary: 'Groq API error', verifiedBy: 'none' };
+    }
+
+    const data = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      return { status: 'unverified', matches: [], summary: 'Groq empty response', verifiedBy: 'none' };
+    }
+
+    const parsed = JSON.parse(content) as {
+      status?: string;
+      confidence?: number;
+      reasoning?: string;
+    };
+
+    const validStatuses = ['verified_true', 'verified_false', 'mixed', 'unverified'];
+    const status = validStatuses.includes(parsed.status ?? '')
+      ? (parsed.status as ClaimCheckResult['status'])
+      : 'unverified';
+
+    const confidence = typeof parsed.confidence === 'number'
+      ? Math.max(0, Math.min(1, parsed.confidence))
+      : 0.5;
+
+    const reasoning = parsed.reasoning ?? 'Analyse IA sans explication disponible.';
+
+    const statusLabel =
+      status === 'verified_true' ? 'VRAI' :
+      status === 'verified_false' ? 'FAUX' :
+      status === 'mixed' ? 'MITIGÉ' : 'NON VÉRIFIÉ';
+
+    return {
+      status,
+      matches: [],
+      summary: `Analyse IA (confiance ${Math.round(confidence * 100)}%) — ${statusLabel}`,
+      verifiedBy: 'ai',
+      aiReasoning: reasoning,
+    };
+  } catch (error) {
+    clearTimeout(timeout);
+    if (error instanceof Error && error.name !== 'AbortError') {
+      console.error('Groq claim check error:', error.message);
+    }
+    return { status: 'unverified', matches: [], summary: 'Erreur lors de l\'analyse IA', verifiedBy: 'none' };
+  }
+}
+
 // ── CLAIM-LEVEL FACT CHECK ──────────────────────────────────────────────────────
 
 /**
  * Check a single claim against Google Fact Check API
  * Returns verified status and matching fact-checks
  */
-export async function checkClaimAgainstFactChecks(claimText: string): Promise<ClaimCheckResult> {
+export async function checkClaimAgainstFactChecks(
+  claimText: string,
+  articleContext: string = ''
+): Promise<ClaimCheckResultWithSource> {
   if (!claimText || claimText.trim().length === 0) {
     return {
       status: 'unverified',
       matches: [],
       summary: 'Claim text is empty',
+      verifiedBy: 'none',
     };
   }
 
@@ -198,10 +302,15 @@ export async function checkClaimAgainstFactChecks(claimText: string): Promise<Cl
   const results = await searchGoogleFactCheck(claimText);
 
   if (results.length === 0) {
+    // Fallback: use Groq AI if API key is available
+    if (process.env.GROQ_API_KEY) {
+      return checkClaimWithGroq(claimText, articleContext);
+    }
     return {
       status: 'unverified',
       matches: [],
       summary: 'Aucune vérification trouvée pour cette affirmation',
+      verifiedBy: 'none',
     };
   }
 
@@ -225,6 +334,7 @@ export async function checkClaimAgainstFactChecks(claimText: string): Promise<Cl
       status: 'unverified',
       matches: [],
       summary: 'Aucun verdict trouvé dans les fact-checks',
+      verifiedBy: 'none',
     };
   }
 
@@ -246,6 +356,7 @@ export async function checkClaimAgainstFactChecks(claimText: string): Promise<Cl
     status,
     matches: topMatches,
     summary,
+    verifiedBy: 'factcheck',
   };
 }
 

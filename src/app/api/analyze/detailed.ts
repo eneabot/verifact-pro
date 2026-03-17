@@ -21,6 +21,8 @@ export interface ClaimAnalysis {
   }[];
   status: 'verified_true' | 'verified_false' | 'unverified' | 'mixed';
   explanation: string;
+  verifiedBy: 'factcheck' | 'ai' | 'none';
+  aiReasoning?: string;
 }
 
 export interface DetailedAnalysisResponse extends AnalysisResponse {
@@ -49,18 +51,22 @@ export async function buildClaimsAnalysis(articleText: string): Promise<{
 
   // Check each claim against fact-checkers (in parallel, max 5)
   const checkPromises = claims.slice(0, 6).map(claim =>
-    checkClaimAgainstFactChecks(claim.text)
+    checkClaimAgainstFactChecks(claim.text, articleText)
       .then(result => ({
         text: claim.text,
         confidence: claim.confidence,
         status: result.status,
         matches: result.matches,
+        verifiedBy: result.verifiedBy,
+        aiReasoning: result.aiReasoning,
       }))
       .catch(() => ({
         text: claim.text,
         confidence: claim.confidence,
         status: 'unverified' as const,
-        matches: [],
+        matches: [] as ClaimAnalysis['factCheckMatches'],
+        verifiedBy: 'none' as const,
+        aiReasoning: undefined,
       }))
   );
 
@@ -72,7 +78,9 @@ export async function buildClaimsAnalysis(articleText: string): Promise<{
     confidence: claim.confidence,
     factCheckMatches: claim.matches,
     status: claim.status,
-    explanation: buildExplanation(claim.status, claim.matches),
+    explanation: buildExplanation(claim.status, claim.matches, claim.verifiedBy, claim.aiReasoning),
+    verifiedBy: claim.verifiedBy,
+    aiReasoning: claim.aiReasoning,
   }));
 
   // Calculate summary
@@ -96,7 +104,16 @@ export async function buildClaimsAnalysis(articleText: string): Promise<{
 /**
  * Build a 1-2 sentence explanation for a claim based on its status
  */
-function buildExplanation(status: string, matches: Array<{ publisherName: string; rating: string }>): string {
+function buildExplanation(
+  status: string,
+  matches: Array<{ publisherName: string; rating: string }>,
+  verifiedBy?: string,
+  aiReasoning?: string
+): string {
+  if (verifiedBy === 'ai' && aiReasoning) {
+    return `🤖 Analyse IA : ${aiReasoning}`;
+  }
+
   const sources = matches.length > 0
     ? ` selon ${matches.map(m => m.publisherName).join(', ')}`
     : '';
