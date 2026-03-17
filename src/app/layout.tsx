@@ -9,12 +9,12 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'verifact PRO ⚡ — Fact-checker d\'actualité',
-  description: 'Analyseur autonome de fiabilité pour articles d\'actualité français. Détecte satire, biais, désinformation.',
+  title: 'VeritasAI 🔍 — Fact-checker d\'actualité',
+  description: 'Vérifiez la vérité, alimenté par l\'IA. Analyseur autonome de fiabilité pour articles d\'actualité français. Détecte satire, biais, désinformation.',
   robots: 'index, follow',
   openGraph: {
-    title: 'verifact PRO',
-    description: 'Fact-checker autonome d\'actualité française',
+    title: 'VeritasAI',
+    description: 'Vérifiez la vérité, alimenté par l\'IA — Fact-checker autonome d\'actualité française',
     type: 'website',
   },
 };

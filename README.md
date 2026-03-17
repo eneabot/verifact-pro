@@ -1,6 +1,6 @@
-# ⚡ verifact PRO — Autonomous Fact-Checking for French News
+# 🔍 VeritasAI — Autonomous Fact-Checking for French News
 
-A modern, autonomous fact-checking system that analyzes any French news article in real-time.
+*Vérifiez la vérité, alimenté par l'IA* — A modern, autonomous fact-checking system that analyzes any French news article in real-time.
 
 ## 🎯 Features
 

@@ -1,5 +1,5 @@
 /**
- * verifact PRO — Main Analysis Endpoint v3
+ * VeritasAI — Main Analysis Endpoint v3
  * ML-first pipeline with optional LLM enhancement
  *
  * Pipeline:
